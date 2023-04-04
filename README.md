@@ -42,197 +42,286 @@ This app will show a list of fake people who work at fake companies. Let's prete
     - `favoriteMusicGenre`
 - Enable the user to add "favorites." These users can be shown in a special list.
 - Enable the user to "block" users if they, for instance, have the temerity to list "Non Music" as their favorite music genre. That's insane. (Reasonable people call it "post-music," obviously.)
+- **NEW** Enable users to search other users by name, then follow a link to display the found user's profile.
 
 ### Think ahead
 
-Now we need to find a way to let the user choose favorites. There will need to be a button on each card that determines whether the person is a favorite or not, and we'll need to store that information in state.
+See that **NEW** tag above? It turns out our client didn't give us appropriate acceptance criteria for this app. It turns out they want to prioritize a user search function. Let's see what we can do!
 
-We'll also need a way to display the favorites if the user navigates to `/favorites`, so we'll probably use React Router.
+Fortunately, our back-end engineers are awesome. They've already built two endpoints for us to use:
 
->NOTE: In a production app, the user's "favorites" information would need to be stored in our back-end database so that user preferences could be preserved! We likely wouldn't do the filtering for this in the front end, either. It's likely that our application would simply make another call to the API to retrieve favorites.
->
->But we'll still mimic it here, because it's good practice, and it's fun.
+- `/search?term={searchTerm}`: Based on the value you provide for `{searchTerm}` the endpoint will return a list of users whose _names_ match the query. The schema for searched users (note that this is different from our normal user data) is:
 
-## Step 2: Think about identity
-
-Sure, each of our users has a spectacular `fullName`, but what's the _easiest_ way to identify an individual person? How about the `id`?
-
-For now, edit the `Person` component to display each user's ID on their card. We'll use this value later.
-
-## Step 3: Make a place to store the IDs
-
-We'll need this to live in `App.js` so that we can pass it down to various child components:
-
-```js
-  const [ favorites, setFavorites ] = useState([1])
-```
-
->For now, we've pre-set our friend Kathy Fahey onto our favorites list so we can test some things.
-
-And we'll need our `Person` cards to be able to access and change this value. Pass `favorites` and `setFavorites` as props for `Person`.
-
-## Step 4: Display whether a person is a favorite
-
-Each person card now has three props:
-- `person`: the person's entry in the data
-- `favorites`: an array of IDs
-- `setFavorites`: a way to change that array.
-
-Let's use Bootstrap's `Badge` component to show the status. In `Person.jsx`:
-
-```js
-import Badge from 'react-bootstrap/Badge';
-```
-
-And, nested in _the same element_ where you're currently displaying the `fullName`, let's add the badge:
-
-```js
-            <Badge bg="danger" className="ms-2">♥</Badge>
-```
-
-If you look now in your browser, you'll see that _everyone_ looks like a favorite. We don't even know these people! They can't all be our favorites!!!
-
-Fortunately we can use some wild React moves to set a condition under which the badge will appear. Change the `Badge` line to this:
-
-```js
-    { props.favorites.includes(props.person.id) && <Badge bg="danger" className="ms-2">♥</Badge> }
-```
-
->**_What's going on here?_** It depends a lot upon the return values of `&&` and `includes()`.
->
->`.includes` is the easiest to explain. If the `favorites` array _includes_ the `person.id`, it will return `true`, otherwise `false`.
-> 
-> What's wild is that `&&` actually returns values too. If the first condition (the part before `&&`) is falsy, this returns `false` -- which, conveniently, React ignores in the render. No problem! But if all the conditions are truthy, `&&` returns the final truthy element.
->
->In other words, if the first part is truthy, React will plug in the second part. It's weird but you'll get used to it!
-
-Now _only_ our friend Kathy Fahey should have a badge.
-
-## Step 5: Add a person to the favorites
-
-Adding to an array in React state is a _little_ tricky. Just like we can't reset state variables directly, we also can't just `.push` and `.pop`. Instead, we have to set state to a _new_ value.
-
-Let's set up a new function inside `Person.jsx` that can use props to update the favorites array:
-
-```js
-    const addToFavorites = () => {
-        // create a shallow copy of the current array
-        const newFavorites = [...props.favorites]
-        // add the current person's ID to the array
-        newFavorites.push(props.person.id)
-        // change the value in state
-        props.setFavorites(newFavorites)
+    ```json
+    { 
+        "id": "number", 
+        "fullName": "string",
+        "company": "string" 
     }
-```
+    ```
 
->NOTE: There are ways to do all of this on one line. You may see something like `setFavorites(prev=>[...prev, person.id])` in the wild, so don't be alarmed. For now, the above is much easier to understand.
+- `/users/{userId}`: Based on the value you provide for `{userId}` a single user will be returned. The user will have the same schema as users in our user data array, but note that the user will _not_ be nested in an array.
 
-We could attach this new function to a button, but instead let's use the badge directly. You can change our `&&` move to a ternary statement that displays a different, clickable badge for non-faves. It might look like this:
+Amazing. Nice work, crew! We'll use these.
 
-```js
-                { props.favorites.includes(props.person.id) ? 
-                    <Badge bg="danger" className="ms-2">♥</Badge> :
-                    <Badge bg="light" text="secondary" className="ms-2" onClick={addToFavorites}>♥</Badge>
-                }
-```
+## Step 2: Layout
 
->NOTE: This is actually abusing Bootstrap -- `Badge` elements aren't meant to be clickable, and this could cause accessibility issues.
-
-## Step 6: Removing a person from favorites
-
-Removing a value from an array in React is also tricky, but in this case, we actually already know a few methods that return a new array. We can use `.filter`. Remember that `favorites` is actually an array of IDs, and think about this code:
+We'll follow standard practice and place our search bar in the header, on the right side. First, let's create a new component for it in `components/Search.jsx`:
 
 ```js
-    favorites.filter(fave => fave !== person.id)
-```
+export default function Search (props) {
 
-This would give us a new array with everything _except_ the current ID, right? We can actually plug something like this right in:
-
-```js
-    props.setFavorites(props.favorites.filter(fave => fave !== props.person.id))
-```
-
-Whoa. While we could plug that in inline somewhere, let's stick with our pattern and make a new function in `Person.jsx`:
-
-```js
-    const removeFromFavorites = () => {
-        // create a new array with everything from current faves except current id
-        const newFavorites = props.favorites.filter(fave => fave !== props.person.id)
-        // change the value in state
-        props.setFavorites(newFavorites)
-    }
-```
-
-Now use this function as the `onClick` callback for the original version of the badge. Now you can turn friendships on and off at will, just like in real life!
-
-## BONUS: Displaying favorites
-
-If we want to display _just_ the favorites at `/favorites`, we'll need to use React Router.
-
-Start by importing BrowserRouter in `index.js` and wrapping your `App` component with it.
-
-Then, in `App.js`, we can import `Routes` and `Route` from `'react-router-dom'`. You _could_ set up a simple routing situation by replacing your current "people list" in the render with something like this:
-
-```js
-      <Routes>
-        <Route path="/favorites" element={(
-            <div className="people-div d-flex flex-wrap justify-content-center">
-                { people
-                    .filter(person => favorites.includes(person.id))
-                    .map(person => <Person key={person.id} person={person} favorites={favorites} setFavorites={setFavorites} />) }
-            </div>
-          )} />
-        <Route path="/" element={(
-            <div className="people-div d-flex flex-wrap justify-content-center">
-                { people
-                    .filter(filterFunction)
-                    .map(person => <Person key={person.id} person={person} favorites={favorites} setFavorites={setFavorites} />) }
-            </div>
-          )} />
-      </Routes>
-```
-
->NOTE: It would make more sense to refactor the people list into a separate component! Unfortunately that is out of scope for us at the moment.
-
-OK, that works, but our `Filter` only works on the home page. Fortunately, we can include more that one `Routes` component:
-
-```js
-      <div className="position-sticky top-0 bg-body pb-2" style={{zIndex:10}}>
-        <Header />
-        <Routes>
-          <Route path="/" element={<Filter 
-            setDevLevelFilter={setDevLevelFilter}
-            setCompanyFilter={setCompanyFilter}
-            setGenreFilter={setGenreFilter}
-            />} />
-        </Routes>
-      </div>
-```
-
-Last, you'll import the `Link` component from React Router into your `Header` component. You might end up with something like this:
-
-```js
-import { Link } from 'react-router-dom'
-
-export default function Header (props) {
     return (
-        <div className="container-fluid d-flex justify-content-start align-items-center p-2 m-2 bg-primary" style={{color: "white"}}>
-            <div className="logo">
-                <Link 
-                    style={{fontWeight: "bold", fontSize: "24px", color:"white", textDecoration: "none"}}
-                    to="/" 
-                    >SynchedIn</Link>
-            </div>
-            <Link 
-                className="ms-4" 
-                style={{color:"white", textDecoration: "none"}} 
-                to="/favorites"
-                >My Favorites</Link>
+        <div className="search mx-2">
+            SEEEEARCH
         </div>
     )
 }
 ```
 
-## BONUS: Undo bad UI practices
+We'll build this out bigtime later, but for now, let's just `import` this component into `Header.jsx` and plug `<Search />` in right below the `div` with className "logo". Test it out!
 
-The badge on each card really should be a button. Refactor `Person.jsx` to use the `Button` component instead of `Badge`, and style it how you like.
+Right now, it's on the left. :/ Change `justify-content-start` in the main header `div` to `justify-content-between`. Wow, thanks Bootstrap!
+
+>NOTE: The `mx-2` class in the code sample above adds "level 2" padding on the left and right.
+
+## Step 3: Make it a controlled form
+
+In React, a "controlled form" is one that is hooked up to state -- in both directions! What's in state can change what's on the form, and what the user puts in the form can change what's in state. We love state. So first let's create some state for our search term:
+
+```js
+    const [ searchTerm, setSearchTerm ] = useState("")
+```
+
+Instead of `SEEEEARCH`, let's put a _controlled_ Bootstrap form inside that `div`. First, `import Form from 'react-bootstrap/Form'`, then place this inside the `div`:
+
+```js
+    <Form.Control type="search" placeholder="Search a name" value={searchTerm} onChange={(e)=>setSearchTerm(e.target.value)} />
+```
+
+>NOTE: The `value` property will track `searchTerm` in state... and the `onChange` property will change `searchTerm` when the user creates input.
+
+Test this out by opening React dev tools, selecting the `Search` component, then typing in the search bar. Does state change?
+
+## Step 4: Get some data
+
+We know that we can grab the value of `searchTerm` and plug it into the search endpoint that our back-end engineers built. Let's try it.
+
+First, we'll need a place to store our search results. Add:
+
+```js
+    const [ searchResults, setSearchResults ] = useState([])
+```
+
+> ### User-centered design
+>
+> We want a fancy, modern search, because we don't want our lazy Gen Z users to have to hit "Enter." They can't even pay off their own student loans, jeez! How could we update the results with each keystroke?
+>
+> Well, we know we'll use `useEffect` to fetch our data... if we add `searchTerm` to the dependency array, then our `useEffect` will run every time `searchTerm` changes. Perfect!
+
+Now we need to set up a `useEffect` to grab search data, using a similar pattern to what we've used before. The main difference is that now we need to provide a fake "URL" to `fakeFetch`, and it should match the pattern our back-end engineers designed:
+
+```js
+    useEffect(()=>{
+        const getSearchResults = async () => {
+            const res = await fakeFetch(`/search?term=${searchTerm}`) // interpolate searchTerm from state into query
+            setSearchResults(await res.json()) // set results in searchResults
+        }
+        getSearchResults()
+    },[searchTerm]) // adding searchTerm to the dependency array means this refreshes with every keystroke
+```
+
+Now we should be able to type in the search bar and, in React dev tools, watch `searchResults` change in state!
+
+>NOTE: Even if this is working for you, ask your instructor to talk about it if there's anything you don't understand.
+
+## Step 5: Show the search results
+
+React Bootstrap has some great built-in components that can help us show these results crisply: `<ListGroup>` and `<ListGroup.Item>`.
+
+>Take a moment to peek at the `<ListGroup>` [documentation](https://react-bootstrap.github.io/components/list-group/).
+
+We pretty easily show our results using these components and our best friend `.map`. Add this right below the `<Form.Control>` (inside the main `div`) in `Search.jsx`:
+
+```js
+            <ListGroup className="position-fixed">
+                {searchResults.map(result => (
+                    <ListGroup.Item>
+                        {result.fullName}
+                    </ListGroup.Item>
+                ))}
+            </ListGroup>
+```
+
+Holy wow. `position-fixed` here is a Bootstrap class that locks our results list underneath our search input. Then we just have to use `.map` to create a `<ListGroup.Item>` for each result, and show the `fullName`.
+
+## Step 6: Pause
+
+Great, we have search results, but... what are they supposed to, like, do?
+
+We _could_ set something up to filter our main page for a certain user... But instead, let's set up an individual profile page using React Router and our other back-end endpoint.
+
+## Step 7: Create the profile view
+
+Bootstrap could _probably_ do something cool for us here, but we've got time constraints. Let's just create a new component, `Profile.jsx` that returns a `div`:
+
+```js
+export default function Profile (props) {
+    return (
+        <div className="profile">
+            PROFILE
+        </div>
+    )
+}
+```
+
+Now import it into `App.js` and try plugging it in after your list of people. You'll have to scroll to the bottom, but you should see `PROFILE`.
+
+## Step 8: Add routing
+
+Our homepage filtering is already great, so we _only_ want the profile to show up if users go to `/profiles/{userId}` in our app. We can use React Router (which is already installed) to control this.
+
+First, set up React Router by adding `import { BrowserRouter as Router } from 'react-router-dom'` to `index.js` and then wrapping your `<App>` component in a `<Router>`. (This is tricky and specific; ask your instructor for help.)
+
+In `App.js`, add `import { Routes, Route } from 'react-router-dom'` and set up routes to do the following:
+- Only show the filters at `/`.
+- Show the `<Profile>` component at `/profiles/{userId}`
+
+Try it on your own, but it will be _really_ tough. You might end up with something like this:
+
+```js
+  return (
+    <div className="app">
+      <div className="position-sticky top-0 bg-body pb-2" style={{zIndex:10}}>
+        <Header />
+        <Routes>
+          <Route path="/" element={(
+            <Filter 
+              setDevLevelFilter={setDevLevelFilter}
+              setCompanyFilter={setCompanyFilter}
+              setGenreFilter={setGenreFilter}
+              />)} />
+        </Routes>
+      </div>
+      <Routes>
+        <Route path="/" element={(
+          <div className="people-div d-flex flex-wrap justify-content-center">
+            { people
+              .filter(filterFunction)
+              .map(person => <Person key={person.id} person={person} />) }
+          </div>)} />
+        <Route path="/profiles/:id" element={(<Profile />)} />
+      </Routes>
+    </div>
+  );
+```
+
+> ### UUUUGH, that's awful: Let's break this down.
+> 
+> - `<Header />` is outside any `<Routes>` component, so it always shows up.
+> - There are _two_ `<Routes>` components:
+>     - Inside the header div, the route just shows `<Filter>` if the URL is "/" and otherwise hides it.
+>     - In the second `<Routes>` component, path "/" shows our normal list, and path "/profiles/:id" shows our `<Profile>` component. We'll use `:id` in a moment.
+>
+> It would make sense to refactor our homepage list into a new `<People>` component, but that's out of scope for our current goals. There might be other smart ways to refactor it, too... Food for thought later!
+
+## Step 9: Use the `:id` slug
+
+Just like we learned with Express routes, React Router lets us use a "slug", or a route parameter, to grab information we need from the URL. With React Router, we use a hook called `useParams`. In `Profile.jsx`:
+
+```js
+import { useParams } from 'react-router-dom'
+```
+
+Now, let's... _use_ it. Add this inside your function in `Profile.jsx`:
+
+```js
+    const params = useParams()
+    console.log(params)
+```
+
+Navigate to `http://localhost:3000/profiles/2` in your browser and open your browser console. You should see `{id: '2'}`. We can use this.
+
+## Step 10: Grab an individual user
+
+For the next stage, we'll need our core React moves. In `Profile.jsx` add:
+
+```js
+import { useEffect, useState } from 'react'
+```
+
+...and set up a value in state to hold our individual user:
+
+```js
+    const [user, setUser] = useState({})
+```
+
+Similar to what we have in `Search.jsx`, we'll set up a `useEffect` to hit our individual user endpoint:
+
+```js
+    useEffect(()=>{
+        const getUser = async () => {
+            const res = await fakeFetch(`/users/${params.id}`)
+            setUser(await res.json())
+        }
+        getUser()
+    },[params.id])
+```
+
+>NOTE: In production applications, we might need to set up more complex logic here to handle what happens when things _don't_ go well. For right now, let's look at what we can do when we nail it!
+
+Now, replace the test "PROFILE" with `{user.fullName}`.
+
+## Step 11: Fill out the profile
+
+This could be fun to come back to later and style it more carefully. For right now, fill our profile with a few `<h1>`, `<h2>`, and `<p>`s that display things like `user.fullName`, `user.company`, `user.devLevel`, and `user.bio`.
+
+>NOTE: If you've already completed [part 3A](https://github.com/jeremyrrose/synched-in-part-3a), you could incorporate your "favorites" logic here, too. Take a look at this later!
+
+## Step 12: Add links to search
+
+Now that we've set up a place to go to to see an individual person, we can have our search direct users to an individual profile!
+
+We'll need to grab the `<Link>` component from React Router in `Search.jsx`:
+
+```js
+import { Link } from 'react-router-dom'
+```
+
+Now all we have to do is wrap each `<ListGroup.Item>` in a `<Link>` to the right location:
+
+```js
+                    <Link to={`profiles/${result.id}`}>
+                        <ListGroup.Item>
+                            {result.fullName}
+                        </ListGroup.Item>
+                    </Link>
+```
+
+>Break it down: What is `result.id`?
+
+Search a string and click on a name! Or use keyboard controls (`TAB` and `ENTER`) to navigate -- Bootstrap is relentlessly accessible.
+
+## BONUS: Have the SynchedIn logo link back to "/"
+
+That's expected behavior. You may have to style your `<Link>` with something like `{{color: "white", textDecoration: "none" }}`.
+
+## BONUS: Flesh out and style the search results
+
+Right now we just display the `fullName` for each search result. We also get the `company` for each result. If we `import Badge from 'react-bootstrap/Badge'`, we could do something like this:
+
+```js
+    <Link to={`profiles/${result.id}`} style={{textDecoration: "none"}}>
+        <ListGroup.Item>
+            <h5>{result.fullName}<Badge bg="light" text="secondary">{result.company}</Badge></h5>
+        </ListGroup.Item>
+    </Link>
+```
+
+## BONUS: Finish the `<Profile>` component
+
+Use Bootstrap or CSS to make it look like you want it to!
+
+## MEGABONUS: Consider step 4
+
+[SynchedIn step 4](https://github.com/jeremyrrose/synched-in-part4)
